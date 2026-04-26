@@ -13,18 +13,24 @@ g++ -O3 -march=native -fopenmp -Wall -Werror -Wextra -Wpedantic par.cpp -o par &
 
 Takes in a `vector<uint32_t>` and outputs a `vector<uint32_t>`. For best usage, the output should be a pre-allocated buffer.
 
-> [!WARNING]
+> [!NOTE]
 > The current max count per histogram is $`2^{32} - 1`$. If you expect a larger bucket size, or can get away with $`2^{16}-1`$ count per bucket, change it accordingly.
 
 ## Implementation
 
 Once again, parallelized from eloj's [radix-sorting](https://github.com/eloj/radix-sorting).
 
-For $`t`$ threads, input is split into $`t`$ thread-local contiguous chunks. We use an $`8`$-bit radix, meaning $`4`$ passes per each `uint32_t` key, and $`256`$ histogram buckets in total. Histograms are built per-thread and combined at the end with fetch-and-add (`atomic update`), which avoids atomic increments. First calculate the offset per bucket of the global histogram, then calculate the per-thread global histogram bucket offsets so threads can update the global histogram in a lock-free manner.
+For $`t`$ threads, input is split into $`t`$ thread-local contiguous chunks. We use an $`8`$-bit radix, meaning $`4`$ passes per each `uint32_t` key, and $`256`$ histogram buckets in total. Histograms are built per-thread and combined at the end with OpenMP reduction, which is lock-free.
 
-The input of next pass is directly the output of the recently-completed pass. $`4`$ of these passes are completed in LSD order.
+Once the offset per bucket of the global histogram has been calculated, we now calculate the per-thread global histogram bucket offsets. This can be parallelized by splitting the array into `t` sub-arrays, performing prefix sum independently, and then a second pass to prefix sum it all together:
 
-Remember to pin threads and use cache-friendly bucket layout.
+> Suppose we have from the first pass $`3`$ sub-arrays with respective subtotals (last value of prefix sum), $`a_{1} = n_{1}`$, $`a_{2} = n_{2}`$, and $`a_{3} = n_{3}`$. Then in the second pass, each element in $`a_{2}`$ is summed with $`n_{1}`$ to produce $`n^{*}_{2}`$, and each element in $`a_{3}`$ is summed with $`n^{*}_{2}`$.
+
+As noted in [Algorithmica](https://en.algorithmica.org/hpc/algorithms/prefix/), SIMD implementation of this has a memory bandwith problem for large arrays, but this can be solved by using multiple hardware threads. Remember to pin threads and use cache-friendly bucket layout.
+
+Lastly, once prefix sums are calculated, sort in $`4`$ passes (LSD order). The input of next pass is directly the output of the recently-completed pass.
+
+Required for vectorization of generating histograms [bookmark] (https://stackoverflow.com/questions/51778721/how-to-convert-32-bit-float-to-8-bit-signed-char-41-packing-of-int32-to-int8).
 
 ## Testing
 
