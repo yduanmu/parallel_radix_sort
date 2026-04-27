@@ -22,7 +22,7 @@ Once again, parallelized from eloj's [radix-sorting](https://github.com/eloj/rad
 
 For $`t`$ threads, input is split into $`t`$ thread-local contiguous chunks. We use an $`8`$-bit radix, meaning $`4`$ passes per each `uint32_t` key, and $`256`$ histogram buckets in total. Histograms are built per-thread and combined at the end with OpenMP reduction, which is lock-free.
 
-Once the offset per bucket of the global histogram has been calculated, we now calculate the per-thread global histogram bucket offsets. This is a prefix sum of $`4 * 256`$ `uint32_t`s, or `4KB` of data. It can be performed quickly when sequential and scalar.
+Once the offset per bucket of the global histogram has been calculated, we now calculate the global histogram bucket offsets. This is a prefix sum of $`4 * 256`$ `uint32_t`s, or `4KB` of data. It can be performed quickly when sequential and scalar.
 
 Lastly, once prefix sums are calculated, sort in $`4`$ passes (LSD order). The input of next pass is directly the output of the recently-completed pass.
 
