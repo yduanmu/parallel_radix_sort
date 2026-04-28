@@ -4,33 +4,41 @@
 #include <immintrin.h>
 #include <array>
 
+//for main
+#include <fstream>
+#include <bitset>
+
 using std::vector;
 using std::uint32_t;
 using std::uint8_t;
 using std::array;
 
 struct alignas(64) Count {
-	array<uint32_t, 256> local = {0};
+	array<size_t, 256> local = {0};
 };
 
 // ====================================================================================
 // Radix sort parallelized from eloj's radix_sort_u32.c implementation.
 // ====================================================================================
-vector<uint32_t> radix_sort(vector<uint32_t>& zcodes, size_t num_thr, bool scalar) {
+void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 	size_t n = zcodes.size();
 	vector<uint32_t> zcodes_aux;
 	zcodes_aux.resize(n);
 
 	/* Per-thread histograms. Aligned to prevent false sharing. One vector per pass;
 	 * within each vector is the per-thread histogram vector. */
-	vector<Count> count0;
-	vector<Count> count1;
-	vector<Count> count2;
-	vector<Count> count3;
+	vector<Count> count0, count1, count2, count3;
 	count0.resize(num_thr);
 	count1.resize(num_thr);
 	count2.resize(num_thr);
 	count3.resize(num_thr);
+
+	//offset arrays
+	vector<Count> offset0, offset1, offset2, offset3;
+	offset0.resize(num_thr);
+	offset1.resize(num_thr);
+	offset2.resize(num_thr);
+	offset3.resize(num_thr);
 
 	omp_set_num_threads(num_thr);
 	// --------------------------------------------------------------------------------
@@ -62,11 +70,6 @@ vector<uint32_t> radix_sort(vector<uint32_t>& zcodes, size_t num_thr, bool scala
 	// Scalar approach to generating histograms.
 	// Will become main approach if parallelization beats sequential.
 	// --------------------------------------------------------------------------------
-	size_t a0 = 0;	//used in calculating prefix sums
-	size_t a1 = 0;
-	size_t a2 = 0;
-	size_t a3 = 0;
-	array<uint32_t, 256> global_starts;
 	#pragma omp parallel
 	{
 		// ---------------------- Generate histograms. --------------------------------
@@ -90,71 +93,116 @@ vector<uint32_t> radix_sort(vector<uint32_t>& zcodes, size_t num_thr, bool scala
 		// --------------------- Calculate prefix sums. -------------------------------
 		/* Histogram of digit counts is now tranformed to memory address offsets for
 		 * the output array. In other words, prefix sum. */
-		#pragma omp for schedule(static) firstprivate(a0, a1, a2, a3)
-		for(size_t i = 0; i < 256; ++i) {
-			size_t b0 = count0[tid].local[i];
-			size_t b1 = count1[tid].local[i];
-			size_t b2 = count2[tid].local[i];
-			size_t b3 = count3[tid].local[i];
-			count0[tid].local[i] = a0;
-			count1[tid].local[i] = a1;
-			count2[tid].local[i] = a2;
-			count3[tid].local[i] = a3;
-			a0 += b0;
-			a1 += b1;
-			a2 += b2;
-			a3 += b3;
-		}
-
 		#pragma omp single
 		{
-			for(size_t i = 0; i < 256; ++i) {
-				for(size_t j = 0; j < tid - 1; ++j) {
-					a0 = count0[j].local[i];
-					a1 = count1[j].local[i];
-					a2 = count2[j].local[i];
-					a3 = count3[j].local[i];
-					global_starts[i] += a0 + a1 + a2 + a3;
+			//starts are the beginning offsets of each bucket.
+			size_t start0 = 0;
+			size_t start1 = 0;
+			size_t start2 = 0;
+			size_t start3 = 0;
+
+			for(size_t bucket = 0; bucket < 256; ++bucket) {
+				//runs are the per-thread offsets of each bucket.
+				size_t run0 = start0;
+				size_t run1 = start1;
+				size_t run2 = start2;
+				size_t run3 = start3;
+
+				for(size_t t = 0; t < num_thr; ++t){
+					/* Offsets = runs. They decide which slice of the current bucket
+					 * that each thread owns. */
+					offset0[t].local[bucket] = run0;
+					offset1[t].local[bucket] = run1;
+					offset2[t].local[bucket] = run2;
+					offset3[t].local[bucket] = run3;
+
+					/* Increase runs by amount of elements in each histogram bucket to
+					 * prepare for the next thread's offset calculation. */
+					run0 += count0[t].local[bucket];
+					run1 += count1[t].local[bucket];
+					run2 += count2[t].local[bucket];
+					run3 += count3[t].local[bucket];
 				}
+
+				//prepare for offset calculation of next bucket
+				start0 = run0;
+				start1 = run1;
+				start2 = run2;
+				start3 = run3;
 			}
 		}
 
 		// -------------------- Sort in 4 passes in LSB order. ------------------------
-		#pragma for schedule(static)
+		//each thread mutates only its own offset row.
+		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes[i];
 			uint8_t digit = key & 0xFF;
-			size_t offset = count0[tid].local[digit] + global_starts[digit] ++;
-			zcodes_aux[offset] = zcodes[i];
+			size_t dest = offset0[tid].local[digit] ++;
+			zcodes_aux[dest] = zcodes[i];
 		}
 
-		#pragma for schedule(static)
+		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes_aux[i];
 			uint8_t digit = (key >> 8) & 0xFF;
-			size_t offset = count1[tid].local[digit] + global_starts[digit] ++;
-			zcodes[offset] = zcodes_aux[i];
+			size_t dest = offset1[tid].local[digit] ++;
+			zcodes[dest] = zcodes_aux[i];
 		}
 
 
-		#pragma for schedule(static)
+		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes[i];
 			uint8_t digit = (key >> 16) & 0xFF;
-			size_t offset = count2[tid].local[digit] + global_starts[digit] ++;
-			zcodes_aux[offset] = zcodes[i];
+			size_t dest = offset2[tid].local[digit] ++;
+			zcodes_aux[dest] = zcodes[i];
 		}
 
-		#pragma for schedule(static)
+		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes_aux[i];
 			uint8_t digit = (key >> 24) & 0xFF;
-			size_t offset = count3[tid].local[digit] + global_starts[digit] ++;
-			zcodes[offset] = zcodes_aux[i];
+			size_t dest = offset3[tid].local[digit] ++;
+			zcodes[dest] = zcodes_aux[i];
 		}
 
 	}
+}
 
-	return zcodes;
+// ====================================================================================
+// Main.
+// Minor test for correctness for now; comparison and microbenchmark TBA.
+// ====================================================================================
+int main() {
+	vector<uint32_t> zcodes = {
+		0b00000111111100011001010100110111,
+		0b00010011111011111111011011000110,
+		0b00011000011011010000001001011001,
+		0b00111111111100111010111101010111,
+		0b00101000000100000000001101000101,
+		0b00101101111101100100100101110111,
+		0b00000111101100011010001110111000,
+		0b00011111111110111111110110011110,
+		0b00000100111001100111001110110001,
+		0b00001100010110011011000100110101,
+		0b00001100000111000111011010110000,
+		0b00000010111000000011100111111100,
+		0b00000000111101011011010110110011,
+		0b00100010110100100000110010100110,
+		0b00101011101011011101001001111001
+	};
+
+	radix_sort(zcodes, 2);
+
+	std::ofstream output("output.txt");
+	if(output.is_open()) {
+		for(uint32_t key : zcodes) {
+			output << std::bitset<32>(key) << "\n";
+		}
+		output.close();
+	}
+
+	return 0;
 }
 
