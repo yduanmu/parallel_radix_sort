@@ -7,6 +7,7 @@
 //for main
 #include <fstream>
 #include <bitset>
+#include <iostream>
 
 using std::vector;
 using std::uint32_t;
@@ -192,15 +193,18 @@ int main() {
 		0b00100010110100100000110010100110,
 		0b00101011101011011101001001111001
 	};
+	zcodes = {0x3300, 0x00, 0x55, 0xFF, 0x3301};
 
 	radix_sort(zcodes, 2);
 
-	std::ofstream output("output.txt");
+	std::ofstream output("tests/par.txt");
 	if(output.is_open()) {
 		for(uint32_t key : zcodes) {
 			output << std::bitset<32>(key) << "\n";
 		}
 		output.close();
+	} else {
+		std::cerr << "Unable to open tests/par.txt";
 	}
 
 	return 0;

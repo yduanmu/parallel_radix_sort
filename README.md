@@ -9,6 +9,7 @@ I use it in my [LBVH project](https://github.com/yduanmu/lbvh-cpu).
 
 ```
 g++ -O3 -march=native -fopenmp -Wall -Werror -Wextra -Wpedantic par.cpp -o par && ./par
+g++ -O3 -march=native -Wall -Werror -Wextra -Wpedantic seq.cpp -o seq && ./seq
 ```
 
 Takes in a `vector<uint32_t>` and outputs a `vector<uint32_t>`. For best usage, the output should be a pre-allocated buffer.
