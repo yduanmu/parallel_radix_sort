@@ -27,45 +27,27 @@ struct alignas(64) Count {
 // ====================================================================================
 // Radix sort parallelized from eloj's radix_sort_u32.c implementation.
 // ====================================================================================
-void prefix_sums(vector<Count>& offset0, vector<Count>& offset1,
-				 vector<Count>& offset2, vector<Count>& offset3,
-				 vector<Count>& count0, vector<Count>& count1,
-				 vector<Count>& count2, vector<Count>& count3,
+void prefix_sums(vector<Count>& offset, vector<Count>& count,
 				 size_t num_thr){
 	//starts are the beginning offsets of each bucket.
-	size_t start0 = 0;
-	size_t start1 = 0;
-	size_t start2 = 0;
-	size_t start3 = 0;
+	size_t start = 0;
 
 	for(size_t bucket = 0; bucket < 256; ++bucket) {
 		//runs are the per-thread offsets of each bucket.
-		size_t run0 = start0;
-		size_t run1 = start1;
-		size_t run2 = start2;
-		size_t run3 = start3;
+		size_t run = start;
 
 		for(size_t t = 0; t < num_thr; ++t){
 			/* Offsets = runs. They decide which slice of the current bucket
 			 * that each thread owns. */
-			offset0[t].local[bucket] = run0;
-			offset1[t].local[bucket] = run1;
-			offset2[t].local[bucket] = run2;
-			offset3[t].local[bucket] = run3;
+			offset[t].local[bucket] = run;
 
 			/* Increase runs by amount of elements in each histogram bucket to
 			 * prepare for the next thread's offset calculation. */
-			run0 += count0[t].local[bucket];
-			run1 += count1[t].local[bucket];
-			run2 += count2[t].local[bucket];
-			run3 += count3[t].local[bucket];
+			run += count[t].local[bucket];
 		}
 
 		//prepare for offset calculation of next bucket
-		start0 = run0;
-		start1 = run1;
-		start2 = run2;
-		start3 = run3;
+		start = run;
 	}
 }
 
@@ -122,8 +104,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		 * offsets for the output array. */
 		#pragma omp single
 		{
-			prefix_sums(offset0, offset1, offset2, offset3,
-						count0, count1, count2, count3, num_thr);
+			prefix_sums(offset0, count0, num_thr);
 		}
 
 		/* Now sort the cureent pass. */
@@ -147,8 +128,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 
 		#pragma omp single
 		{
-			prefix_sums(offset0, offset1, offset2, offset3,
-						count0, count1, count2, count3, num_thr);
+			prefix_sums(offset1, count1, num_thr);
 		}
 
 		#pragma omp for schedule(static)
@@ -169,8 +149,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 
 		#pragma omp single
 		{
-			prefix_sums(offset0, offset1, offset2, offset3,
-						count0, count1, count2, count3, num_thr);
+			prefix_sums(offset2, count2, num_thr);
 		}
 
 		#pragma omp for schedule(static)
@@ -191,8 +170,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 
 		#pragma omp single
 		{
-			prefix_sums(offset0, offset1, offset2, offset3,
-						count0, count1, count2, count3, num_thr);
+			prefix_sums(offset3, count3, num_thr);
 		}
 
 		#pragma omp for schedule(static)
