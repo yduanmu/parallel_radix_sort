@@ -5,6 +5,12 @@ Parallelized from eloj's [radix-sorting](https://github.com/eloj/radix-sorting).
 
 I use it in my [LBVH project](https://github.com/yduanmu/lbvh-cpu).
 
+## Table of contents
+- [Usage](#usage)
+- [Todo](#todo)
+- [Implementation](#implementation)
+- [Testing](#testing)
+
 ## Usage
 
 ```
@@ -17,8 +23,12 @@ Takes in a `vector<uint32_t>` and outputs a sorted `vector<uint32_t>`.
 > [!NOTE]
 > The current max count per histogram is $`2^{32} - 1`$. If you expect a larger bucket size, or can get away with $`2^{16}-1`$ count per bucket, change it accordingly.
 
-## TODO
+## Todo
+
+In descending order of importance.
+
 - [ ] Microbenchmarking.
+- [ ] More detail about correctness (proof) in writeup.
 - [ ] Play around with vectorization of prefix sums.
 
 ## Implementation
@@ -41,7 +51,7 @@ Remember to pin threads.
 
 ## Testing
 
-Parallelization successful; $`~200%`$ speedup when sorting $`10M`$ codes compared to sequential when using $`10`$ threads; $`~460%`$ speedup using $`30`$ threads. Difference in output was checked for using `diff`. More rigorous testing TBA.
+Parallelization successful; $`~200`$% speedup when sorting $`10M`$ codes compared to sequential when using $`10`$ threads; $`~450`$% speedup using $`30`$ threads. Difference in output was checked for using `diff`. More rigorous testing TBA.
 
 I will benchmark this against eloj's [radix-sorting](https://github.com/eloj/radix-sorting#-c-implementation). The testing machine is an [Intel Xeon Gold 5128](https://www.intel.com/content/www/us/en/products/sku/192444/intel-xeon-gold-5218-processor-22m-cache-2-30-ghz/specifications.html).
 
