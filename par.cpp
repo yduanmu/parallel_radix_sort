@@ -37,11 +37,11 @@ void prefix_sums(vector<Count>& offset, vector<Count>& count,
 		size_t run = start;
 
 		for(size_t t = 0; t < num_thr; ++t){
-			/* Offsets = runs. They decide which slice of the current bucket
-			 * that each thread owns. */
+			/* Offset = run. They decide what slice of the current bucket each thread
+			 * owns. */
 			offset[t].local[bucket] = run;
 
-			/* Increase runs by amount of elements in each histogram bucket to
+			/* Increase run by amount of elements in each histogram bucket to
 			 * prepare for the next thread's offset calculation. */
 			run += count[t].local[bucket];
 		}
@@ -85,9 +85,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		/* Each thread only mutates in its own slice. These offsets are calculated by
 		 * histogramming the current pass and taking the prefix sums. */
 
-		/* Each thread operates on its private copy of the histogram arrays and, once
-		 * complete, sums each element with the global arrays. For t threads, this is
-		 * (256 * t * 4) summations. */
+		//histograms
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			/* Mask keys into octets to prepare for 4 passes of 8 bits each, then
@@ -97,13 +95,13 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		}
 
 		/* Prefix sum: histogram of digit counts is now tranformed to memory address
-		 * offsets for the output array. */
+		 * offsets for the complete vector of keys. */
 		#pragma omp single
 		{
 			prefix_sums(offset0, count0, num_thr);
 		}
 
-		/* Now sort the cureent pass. */
+		/* Now sort the current pass. */
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes[i];
@@ -113,8 +111,6 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		}
 		
 		// ------------------------------- Pass 1. ------------------------------------
-		/* The histogram and prefix sums must be recalculated in order for per-thread
-		 * write offsets to be accurate. */
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			uint32_t key = zcodes_aux[i];
@@ -179,7 +175,7 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 
 // ====================================================================================
 // Main.
-// Minor test for correctness for now; comparison and microbenchmark TBA.
+// Minor test for correctness and parallelization success for now; microbenchmark TBA.
 // ====================================================================================
 int main() {
 	size_t n = 10000000;
