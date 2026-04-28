@@ -1,7 +1,7 @@
 # parallel_radix_sort
 Implementation of least-significant digit (LSD) parallel radix sort in C++ using OpenMP. Sorts an arbitrary-length vector of $`32`$-bit `int` Z-order (Morton) codes. Result is MSb-first.
 
-Parallelized from eloj's [radix-sorting](https://github.com/eloj/radix-sorting).
+Parallelized from eloj's [radix-sorting](https://github.com/eloj/radix-sorting). CPU implementation of [Harada & Howes 2011](https://gpuopen.com/download/Introduction_to_GPU_Radix_Sort.pdf).
 
 I use it in my [LBVH project](https://github.com/yduanmu/lbvh-cpu).
 
@@ -10,6 +10,7 @@ I use it in my [LBVH project](https://github.com/yduanmu/lbvh-cpu).
 - [Todo](#todo)
 - [Implementation](#implementation)
 - [Testing](#testing)
+- [Sources](#sources)
 
 ## Usage
 
@@ -28,8 +29,8 @@ Takes in a `vector<uint32_t>` and outputs a sorted `vector<uint32_t>`.
 In descending order of importance.
 
 - [ ] Microbenchmarking.
-- [ ] More detail about correctness (proof) in writeup.
-- [ ] Play around with vectorization of prefix sums.
+- [ ] More detail about correctness in writeup.
+- [ ] SIMD
 
 ## Implementation
 
@@ -39,7 +40,7 @@ I have a fair amount of comments in the code, so it might be worthwhile to jump 
 
 For $`t`$ threads, input is split into $`t`$ thread-local contiguous chunks. We use an $`8`$-bit radix, meaning $`4`$ passes per each `uint32_t` key (it is split into $`1`$-byte chunks), and $`256`$ histogram buckets per pass. Histograms are built per-thread.
 
-> Generating this per-thread histogram is done in scalar. AVX2 does not have a dedicated instruction to truncate $`32`$-bit ints to $`8`$-int. We can work around this by packing from $`32`$ to $`16`$ to $`8`$ and then restore linear order with `_mm256_permute4x64_epi64`, but that crosses lanes and might not be worth the overhead.
+> Generating this per-thread histogram is done in scalar. AVX2 does not have a dedicated instruction to truncate $`32`$-bit ints to $`8`$-int. We can work around this by packing from $`32`$ to $`16`$ to $`8`$ and then restore linear order with `_mm256_permute4x64_epi64`, but that crosses lanes and might not be worth the overhead for my purposes. Time permitting, I will try it.
 
 Once the histograms have been calculated, global prefix sums are calculated using the histograms, which are used as the memory offsets of the keys in the complete `vector` of Morton codes. This is important because thread will read and write only from its own slice of the complete `vector`. The prefix sums are an operation on $`4 * 256 * t`$ of `uint32_t`s, and performed sequentially. It can also be [done efficiently with SIMD](https://en.algorithmica.org/hpc/algorithms/prefix/), so time permitting, I will try vectorizing.
 
@@ -57,3 +58,6 @@ I will benchmark this against eloj's [radix-sorting](https://github.com/eloj/rad
 
 Parallelism only expected to pay off at a large $`n`$ number of keys to sort. Expected to scale poorly over a certain amount of threads because of memory bandwidth saturation.
 
+## Sources
+- [radix-sorting](https://github.com/eloj/radix-sorting).
+- [Harada & Howes 2011](https://gpuopen.com/download/Introduction_to_GPU_Radix_Sort.pdf).
