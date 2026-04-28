@@ -7,11 +7,18 @@
 #include <fstream>
 #include <bitset>
 #include <iostream>
+#include <random>
+#include <chrono>
 
 using std::vector;
 using std::uint32_t;
 using std::uint8_t;
 using std::array;
+
+//for main
+using std::chrono::duration_cast;
+using std::chrono::milliseconds;
+using std::chrono::steady_clock;
 
 struct alignas(64) Count {
 	array<size_t, 256> local = {0};
@@ -204,25 +211,23 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 // Minor test for correctness for now; comparison and microbenchmark TBA.
 // ====================================================================================
 int main() {
-	vector<uint32_t> zcodes = {
-		0b00000111111100011001010100110111,
-		0b00010011111011111111011011000110,
-		0b00011000011011010000001001011001,
-		0b00111111111100111010111101010111,
-		0b00101000000100000000001101000101,
-		0b00101101111101100100100101110111,
-		0b00000111101100011010001110111000,
-		0b00011111111110111111110110011110,
-		0b00000100111001100111001110110001,
-		0b00001100010110011011000100110101,
-		0b00001100000111000111011010110000,
-		0b00000010111000000011100111111100,
-		0b00000000111101011011010110110011,
-		0b00100010110100100000110010100110,
-		0b00101011101011011101001001111001
-	};
+	size_t n = 10000000;
+	vector<uint32_t> zcodes;
+	zcodes.resize(n);
+	std::mt19937 prng(0);
+	uint32_t maxcode = (1 << 30) - 1;
+	std::uniform_int_distribution<uint32_t> dist(0, maxcode);
+	for(size_t i = 0; i < n; ++i) {
+		zcodes[i] = dist(prng);
+	}
 
-	radix_sort(zcodes, 2);
+	size_t num_thr = 30;
+
+	auto t0 = steady_clock::now();
+	radix_sort(zcodes, num_thr);
+	auto t1 = steady_clock::now();
+	auto elapsed = duration_cast<milliseconds>(t1 - t0);
+	std::cout << "par elapsed: " << elapsed.count() << std::endl;
 
 	std::ofstream output("tests/par.txt");
 	if(output.is_open()) {
@@ -231,7 +236,7 @@ int main() {
 		}
 		output.close();
 	} else {
-		std::cerr << "Unable to open tests/par.txt";
+		std::cerr << "Unable to open tests/par.txt" << std::endl;
 	}
 
 	return 0;
