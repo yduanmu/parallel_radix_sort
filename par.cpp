@@ -90,14 +90,10 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		 * (256 * t * 4) summations. */
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
-			uint32_t key = zcodes[i];
-			
 			/* Mask keys into octets to prepare for 4 passes of 8 bits each, then
 			 * histogram each of the octet arrays to prepare for the 4 passes. */
+			uint32_t key = zcodes[i];
 			++count0[tid].local[key & 0xFF];
-			++count1[tid].local[(key >> 8) & 0xFF];
-			++count2[tid].local[(key >> 16) & 0xFF];
-			++count3[tid].local[(key >> 24) & 0xFF];
 		}
 
 		/* Prefix sum: histogram of digit counts is now tranformed to memory address
@@ -119,7 +115,6 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		// ------------------------------- Pass 1. ------------------------------------
 		/* The histogram and prefix sums must be recalculated in order for per-thread
 		 * write offsets to be accurate. */
-		count1[tid].local = {0};
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			uint32_t key = zcodes_aux[i];
@@ -140,7 +135,6 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		}
 
 		// ------------------------------- Pass 2. ------------------------------------
-		count2[tid].local = {0};
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			uint32_t key = zcodes[i];
@@ -161,7 +155,6 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 		}
 
 		// ------------------------------- Pass 3. ------------------------------------
-		count3[tid].local = {0};
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			uint32_t key = zcodes_aux[i];
