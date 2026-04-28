@@ -19,18 +19,17 @@ g++ -O3 -march=native -fopenmp -Wall -Werror -Wextra -Wpedantic par.cpp -o par &
 g++ -O3 -march=native -Wall -Werror -Wextra -Wpedantic seq.cpp -o seq && ./seq
 ```
 
-Takes in a `vector<uint32_t>` and outputs a sorted `vector<uint32_t>`.
-
-> [!NOTE]
-> The current max count per histogram is $`2^{32} - 1`$. If you expect a larger bucket size, or can get away with $`2^{16}-1`$ count per bucket, change it accordingly.
+Takes in a `vector<uint32_t>` and outputs a sorted `vector<uint32_t>`. The max count per histogram is $`2^{32} - 1`$.
 
 ## Todo
 
 In descending order of importance.
 
+- [ ] **Prefix sum fix (sum individually in parallel first, then add together).**
 - [ ] Microbenchmarking.
 - [ ] More detail about correctness in writeup.
-- [ ] SIMD
+- [ ] A better prefix sum algorithm.
+- [ ] SIMD.
 
 ## Implementation
 
@@ -42,7 +41,7 @@ For $`t`$ threads, input is split into $`t`$ thread-local contiguous chunks. We 
 
 > Generating this per-thread histogram is done in scalar. AVX2 does not have a dedicated instruction to truncate $`32`$-bit ints to $`8`$-int. We can work around this by packing from $`32`$ to $`16`$ to $`8`$ and then restore linear order with `_mm256_permute4x64_epi64`, but that crosses lanes and might not be worth the overhead for my purposes. Time permitting, I will try it.
 
-Once the histograms have been calculated, global prefix sums are calculated using the histograms, which are used as the memory offsets of the keys in the complete `vector` of Morton codes. This is important because thread will read and write only from its own slice of the complete `vector`. The prefix sums are an operation on $`4 * 256 * t`$ of `uint32_t`s, and performed sequentially. It can also be [done efficiently with SIMD](https://en.algorithmica.org/hpc/algorithms/prefix/), so time permitting, I will try vectorizing.
+Once the histograms have been calculated, global prefix sums are calculated using the histograms, which are used as the memory offsets of the keys in the complete `vector` of Morton codes. This is important because thread will read and write only from its own slice of the complete `vector`. The prefix sums are currently $`O(256^t)`$ (??!!) on `uint32_t`s, and performed sequentially. It can be [done more efficiently with SIMD](https://en.algorithmica.org/hpc/algorithms/prefix/) and [a much better prefix scan algorithm](https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda). **If you're looking at this right now, I went to sleep and will fix the prefix scan to sum the per-thread prefixes in parallel in a few hours.**
 
 Once prefix sums are calculated, the pass is sorted in LSD order. The input of next pass is directly the output of the recently-completed pass.
 
