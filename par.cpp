@@ -1,7 +1,6 @@
 #include <cstdint>
 #include <omp.h>
 #include <vector>
-#include <immintrin.h>
 #include <array>
 
 //for main
@@ -21,6 +20,48 @@ struct alignas(64) Count {
 // ====================================================================================
 // Radix sort parallelized from eloj's radix_sort_u32.c implementation.
 // ====================================================================================
+void prefix_sums(vector<Count>& offset0, vector<Count>& offset1,
+				 vector<Count>& offset2, vector<Count>& offset3,
+				 vector<Count>& count0, vector<Count>& count1,
+				 vector<Count>& count2, vector<Count>& count3,
+				 size_t num_thr){
+	//starts are the beginning offsets of each bucket.
+	size_t start0 = 0;
+	size_t start1 = 0;
+	size_t start2 = 0;
+	size_t start3 = 0;
+
+	for(size_t bucket = 0; bucket < 256; ++bucket) {
+		//runs are the per-thread offsets of each bucket.
+		size_t run0 = start0;
+		size_t run1 = start1;
+		size_t run2 = start2;
+		size_t run3 = start3;
+
+		for(size_t t = 0; t < num_thr; ++t){
+			/* Offsets = runs. They decide which slice of the current bucket
+			 * that each thread owns. */
+			offset0[t].local[bucket] = run0;
+			offset1[t].local[bucket] = run1;
+			offset2[t].local[bucket] = run2;
+			offset3[t].local[bucket] = run3;
+
+			/* Increase runs by amount of elements in each histogram bucket to
+			 * prepare for the next thread's offset calculation. */
+			run0 += count0[t].local[bucket];
+			run1 += count1[t].local[bucket];
+			run2 += count2[t].local[bucket];
+			run3 += count3[t].local[bucket];
+		}
+
+		//prepare for offset calculation of next bucket
+		start0 = run0;
+		start1 = run1;
+		start2 = run2;
+		start3 = run3;
+	}
+}
+
 void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 	size_t n = zcodes.size();
 	vector<uint32_t> zcodes_aux;
@@ -41,44 +82,23 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 	offset2.resize(num_thr);
 	offset3.resize(num_thr);
 
+	omp_set_dynamic(0);
 	omp_set_num_threads(num_thr);
-	// --------------------------------------------------------------------------------
-	// Vectorized approach to generating histograms.
-	// @TODO benchmark this if scalar approach doesn't beat sequential.
-	// --------------------------------------------------------------------------------
-	/* AVX2 does not have a dedicated instruction to truncate 32-bit ints to 8-int.
-	 * We can work around this by packing from 32->16->8 and then restore linear order
-	 * with _mm256_permute4x64_epi64, but that crosses lanes and might not be worth
-	 * the overhead. */
-	// size_t lim = n - (n % 8);
-	// #pragma omp parallel for private(t_hist, key0, key1, key2, key3)
-	// for(size_t i = 0; i < lim; i += 8) {
-	//
-	// 	__m256i k = _mm256_loadu_epi32(zcodes.data() + i);	//z-order keys
-	// 	__m256i mask = _mm256_set1_epi32(0x000000FF);
-	//
-	// 	//mask keys into octets to prepare for 4 passes of 8 bits each
-	// 	_mm256_packus_epi16(_mm256_cvtepi32_epi16(_mm256_and_epi32(k, mask)));
-	// 	__m256i k0 = _mm256_and_epi32(k, mask);
-	// 	__m256i k1 = _mm256_and_epi32(_mm256_srli_epi32(k, 8), mask);
-	// 	__m256i k2 = _mm256_and_epi32(_mm256_srli_epi32(k, 16), mask);
-	// 	__m256i k3 = _mm256_and_epi32(_mm256_srli_epi32(k, 32), mask);
-	//
-	// 	//histogram each of the octet arrays to prepare for the 4 passes
-	// }
 	
 	// --------------------------------------------------------------------------------
-	// Scalar approach to generating histograms.
-	// Will become main approach if parallelization beats sequential.
+	// Sort in 4 passes in LSB order.
 	// --------------------------------------------------------------------------------
 	#pragma omp parallel
 	{
-		// ---------------------- Generate histograms. --------------------------------
+		int tid = omp_get_thread_num();
+
+		// ------------------------------- Pass 0. ------------------------------------
+		/* Each thread only mutates in its own slice. These offsets are calculated by
+		 * histogramming the current pass and taking the prefix sums. */
+
 		/* Each thread operates on its private copy of the histogram arrays and, once
 		 * complete, sums each element with the global arrays. For t threads, this is
-		 * (256 * t * 4) summations. OpenMP reduction can parallelize this efficiently.
-		 */
-		int tid = omp_get_thread_num();
+		 * (256 * t * 4) summations. */
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i ) {
 			uint32_t key = zcodes[i];
@@ -91,56 +111,37 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 			++count3[tid].local[(key >> 24) & 0xFF];
 		}
 
-		// --------------------- Calculate prefix sums. -------------------------------
-		/* Histogram of digit counts is now tranformed to memory address offsets for
-		 * the output array. In other words, prefix sum. */
+		/* Prefix sum: histogram of digit counts is now tranformed to memory address
+		 * offsets for the output array. */
 		#pragma omp single
 		{
-			//starts are the beginning offsets of each bucket.
-			size_t start0 = 0;
-			size_t start1 = 0;
-			size_t start2 = 0;
-			size_t start3 = 0;
-
-			for(size_t bucket = 0; bucket < 256; ++bucket) {
-				//runs are the per-thread offsets of each bucket.
-				size_t run0 = start0;
-				size_t run1 = start1;
-				size_t run2 = start2;
-				size_t run3 = start3;
-
-				for(size_t t = 0; t < num_thr; ++t){
-					/* Offsets = runs. They decide which slice of the current bucket
-					 * that each thread owns. */
-					offset0[t].local[bucket] = run0;
-					offset1[t].local[bucket] = run1;
-					offset2[t].local[bucket] = run2;
-					offset3[t].local[bucket] = run3;
-
-					/* Increase runs by amount of elements in each histogram bucket to
-					 * prepare for the next thread's offset calculation. */
-					run0 += count0[t].local[bucket];
-					run1 += count1[t].local[bucket];
-					run2 += count2[t].local[bucket];
-					run3 += count3[t].local[bucket];
-				}
-
-				//prepare for offset calculation of next bucket
-				start0 = run0;
-				start1 = run1;
-				start2 = run2;
-				start3 = run3;
-			}
+			prefix_sums(offset0, offset1, offset2, offset3,
+						count0, count1, count2, count3, num_thr);
 		}
 
-		// -------------------- Sort in 4 passes in LSB order. ------------------------
-		//each thread mutates only its own offset row.
+		/* Now sort the cureent pass. */
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
 			uint32_t key = zcodes[i];
 			uint8_t digit = key & 0xFF;
 			size_t dest = offset0[tid].local[digit] ++;
 			zcodes_aux[dest] = zcodes[i];
+		}
+		
+		// ------------------------------- Pass 1. ------------------------------------
+		/* The histogram and prefix sums must be recalculated in order for per-thread
+		 * write offsets to be accurate. */
+		count1[tid].local = {0};
+		#pragma omp for schedule(static)
+		for(size_t i = 0; i < n; ++i ) {
+			uint32_t key = zcodes_aux[i];
+			++count1[tid].local[(key >> 8) & 0xFF];
+		}
+
+		#pragma omp single
+		{
+			prefix_sums(offset0, offset1, offset2, offset3,
+						count0, count1, count2, count3, num_thr);
 		}
 
 		#pragma omp for schedule(static)
@@ -151,6 +152,19 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 			zcodes[dest] = zcodes_aux[i];
 		}
 
+		// ------------------------------- Pass 2. ------------------------------------
+		count2[tid].local = {0};
+		#pragma omp for schedule(static)
+		for(size_t i = 0; i < n; ++i ) {
+			uint32_t key = zcodes[i];
+			++count2[tid].local[(key >> 16) & 0xFF];
+		}
+
+		#pragma omp single
+		{
+			prefix_sums(offset0, offset1, offset2, offset3,
+						count0, count1, count2, count3, num_thr);
+		}
 
 		#pragma omp for schedule(static)
 		for(size_t i = 0; i < n; ++i) {
@@ -158,6 +172,20 @@ void radix_sort(vector<uint32_t>& zcodes, size_t num_thr) {
 			uint8_t digit = (key >> 16) & 0xFF;
 			size_t dest = offset2[tid].local[digit] ++;
 			zcodes_aux[dest] = zcodes[i];
+		}
+
+		// ------------------------------- Pass 3. ------------------------------------
+		count3[tid].local = {0};
+		#pragma omp for schedule(static)
+		for(size_t i = 0; i < n; ++i ) {
+			uint32_t key = zcodes_aux[i];
+			++count3[tid].local[(key >> 24) & 0xFF];
+		}
+
+		#pragma omp single
+		{
+			prefix_sums(offset0, offset1, offset2, offset3,
+						count0, count1, count2, count3, num_thr);
 		}
 
 		#pragma omp for schedule(static)
@@ -193,7 +221,6 @@ int main() {
 		0b00100010110100100000110010100110,
 		0b00101011101011011101001001111001
 	};
-	zcodes = {0x3300, 0x00, 0x55, 0xFF, 0x3301};
 
 	radix_sort(zcodes, 2);
 

@@ -45,15 +45,15 @@ void radix_sort(vector<uint32_t>& zcodes) {
 	zcodes_aux.resize(n);
 
 	//Histograms. 1 vector per pass.
-	array<size_t, 256> count0;
-	array<size_t, 256> count1;
-	array<size_t, 256> count2;
-	array<size_t, 256> count3;
+	array<size_t, 256> count0 = {0};
+	array<size_t, 256> count1 = {0};
+	array<size_t, 256> count2 = {0};
+	array<size_t, 256> count3 = {0};
 
 	// --------------------------------------------------------------------------------
 	// Generate histograms.
 	// --------------------------------------------------------------------------------
-	for(size_t i = 0; i < 256; ++i) {
+	for(size_t i = 0; i < n; ++i) {
 		uint32_t key = zcodes[i];
 		++count0[key & 0xFF];
 		++count1[(key >> 8) & 0xFF];
